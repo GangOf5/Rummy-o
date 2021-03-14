@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"time"
+	"fmt"
 
 	"github.com/google/uuid"
 
@@ -30,9 +31,10 @@ var (
 	space   = []byte{' '}
 )
 
-var upgrader = websocket.Upgrader{
+var upgrader = websocket.Upgrader {
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
+	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
 // Client represents the websocket client at the server
@@ -76,7 +78,7 @@ func (client *Client) readPump() {
 			}
 			break
 		}
-
+		fmt.Println(jsonMessage)
 		client.handleNewMessage(jsonMessage)
 	}
 
@@ -137,7 +139,6 @@ func (client *Client) disconnect() {
 func ServeWs(wsServer *WsServer, w http.ResponseWriter, r *http.Request) {
 
 	name, ok := r.URL.Query()["name"]
-
 	if !ok || len(name[0]) < 1 {
 		log.Println("Url Param 'name' is missing")
 		return
@@ -240,7 +241,6 @@ func (client *Client) joinRoom(roomName string, sender *Client) {
 
 		client.notifyRoomJoined(room, sender)
 	}
-
 }
 
 func (client *Client) isInRoom(room *Room) bool {

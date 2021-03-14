@@ -101,7 +101,7 @@ func (server *WsServer) findRoomByName(name string) *Room {
 func (server *WsServer) findRoomByID(ID string) *Room {
 	var foundRoom *Room
 	for room := range server.rooms {
-		if room.GetId() == ID {
+		if room.GetID() == ID {
 			foundRoom = room
 			break
 		}

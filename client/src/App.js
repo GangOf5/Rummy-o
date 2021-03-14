@@ -1,52 +1,110 @@
-import {useEffect, useState, useRef} from 'react'
+import {useState, useRef} from 'react'
 
 export default function App() {
-  const [messages, setMessages] = useState([])
-  const [newMessage, setNewMessage] = useState("")
+  const [rooms, setRooms] = useState([])
+  const [roomNameInput, setRoomNameInput] = useState("")
+  const [user, setUser] = useState({name: ""})
+  const [connected, setConnected] = useState(false)
   const ws = useRef(null);
 
-  function sendMessage() {
+  function sendMessage(room) {
     try {
-      ws.current.send(newMessage) //send data to the server
-      setNewMessage("")
-      } catch (error) {
-          console.log(error) // catch error
+      if (room.newMessage !== ""){
+        ws.current.send(JSON.stringify({
+          action: 'send-message',
+          message: room.newMessage,
+          target: room
+        }))
+        room.newMessage = "";
       }
+    } catch (error) {
+          console.log(error) // catch error
+    }
   }
 
-  useEffect(()=> {
-    ws.current = new WebSocket('ws://localhost:8080/ws')
+  function joinRoom(){
+    ws.current.send(JSON.stringify({
+      action: 'join-room',
+      message: roomNameInput
+    }))
+    setRoomNameInput(() => "")
+  }
+
+  function leaveRoom(room){
+    ws.current.send(JSON.stringify({
+      action: 'leave-room',
+      message: room.id
+    }))
+    setRooms(rooms => rooms.filter(r => r.id !== room.id))
+  }
+
+  function findRoom(roomName) {
+    for(let i = 0; i < rooms.length; i++) {
+      if (rooms[i].name === roomName){
+        return this.rooms[i]
+      }
+    }
+  }
+
+  function handleMessage(message){
+    console.log(message.action)
+
+    if (message["action"] === "room-joined"){
+      setRooms(rooms => [...rooms, {...message.target, messages:[], newMessage:""}])
+    } else if (message.action === "") {
+    const room = findRoom(message.Target)
+    if (room) {
+      room.messages.push(message)
+    }
+    }
+  }
+
+  function connect(){
+    ws.current = new WebSocket(`ws://localhost:8080/ws?name=${user.name}`)
     ws.current.onopen = () => {
       // on connecting, do nothing but log it to the console
       console.log('connected')
+      setConnected(true)
       }
-      ws.current.onmessage = evt => {
-      // listen to data sent from the websocket server
-      const message = evt.data
-      setMessages(ms => [...ms, message])
-      console.log(message)
-      }
-      ws.current.onclose = () => {
-      console.log('disconnected')
-      // automatically try to reconnect on connection loss
-      }
-},[])
+    ws.current.onmessage = evt => {
+    // listen to data sent from the websocket server
+    handleMessage(JSON.parse(evt.data))
+    }
+    ws.current.onclose = () => {
+    console.log('disconnected')
+    // automatically try to reconnect on connection loss
+    }
+  }
 
-  return (
+if (!connected) {
+  return <div className="App">
+    <input value={user.name} onChange={e => setUser(user=>({...user, name: e.target.value}))}/>
+    <button onClick={connect}>Connect</button>
+  </div>
+} else return (
     <div className="App">
-             <textarea name="message"
-                       placeholder="Type your message..."
-                       value={newMessage}
-                       onChange={(e)=>setNewMessage(e.target.value)}
-                       ></textarea>
-            <div>
-              <h1>Messages:</h1>
-              <ul>
-                {messages.map((m, index) => <li key={index}>{m}</li>)}
-              </ul>
-            </div>
-      <button onClick={sendMessage}>Send message</button>
-    </div>
-  );
+      <div>
+        <input value={roomNameInput} onChange={(e) => setRoomNameInput(() => e.target.value)}/>
+        <button onClick={joinRoom}>Join room</button>
+      </div>
+      <hr/>
+      <div>
+        {rooms.map((room, index) => <div key={index}>
+          <p>{room.name} | {room.id}</p>
+          {room.messages.map((m, i) => <li key={i}>{m}</li>)}
+          <input value={room.newMessage} onChange={(e) => setRooms(rooms.map((r, ri) => {
+            if (ri === index){
+              return {...r, newMessage: e.target.value}
+            }
+            else {
+              return r
+            }
+          }))}/>
+          <button onClick={() => sendMessage(room)}>Send message</button>
+          <button onClick={() => leaveRoom(room)}>Leave room</button>
+        </div>)}
+      </div>
+      </div>
+  )
 }
 
