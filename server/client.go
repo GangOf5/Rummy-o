@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/gorilla/websocket"
 )
@@ -22,18 +25,15 @@ const (
 	maxMessageSize = 10000
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  4096,
-	WriteBufferSize: 4096,
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
-}
-
 var (
 	newline = []byte{'\n'}
 	space   = []byte{' '}
 )
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  4096,
+	WriteBufferSize: 4096,
+}
 
 // Client represents the websocket client at the server
 type Client struct {
@@ -41,42 +41,23 @@ type Client struct {
 	conn     *websocket.Conn
 	wsServer *WsServer
 	send     chan []byte
+	ID       uuid.UUID `json:"id"`
+	Name     string    `json:"name"`
+	rooms    map[*Room]bool
 }
 
-func newClient(conn *websocket.Conn, wsServer *WsServer) *Client {
+func newClient(conn *websocket.Conn, wsServer *WsServer, name string) *Client {
 	return &Client{
+		ID:       uuid.New(),
+		Name:     name,
 		conn:     conn,
 		wsServer: wsServer,
 		send:     make(chan []byte, 256),
+		rooms:    make(map[*Room]bool),
 	}
 }
 
-// ServeWs handles websocket requests from clients requests.
-func ServeWs(wsServer *WsServer, w http.ResponseWriter, r *http.Request) {
-
-	//  Upgrader.Upgrade upgrades the HTTP server connection to the WebSocket protocol as described in the WebSocket RFC.
-	//  A summary of the process is this: The client sends an HTTP request requesting that the server upgrade the
-	// connection used for the HTTP request to the WebSocket protocol.
-	//  The server inspects the request and if all is good the server sends an HTTP response agreeing to upgrade
-	// the connection. From that point on, the client and server use the WebSocket protocol over the network connection.
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	// Registers a new client and keeps track of the reference to the websocket connection + the reference to the wsServer.
-	client := newClient(conn, wsServer)
-
-	go client.writePump()
-	go client.readPump()
-
-	// Register the client, add the new client to the map, when a new client sends a request to the `/ws` endpoint
-	wsServer.register <- client
-}
-
-//  In the readPump Goroutine, the client will read new messages send over the WebSocket connection.
-// It will do so in an endless loop until the client is disconnected.
+// readPump reads new messages from a client's connection
 func (client *Client) readPump() {
 	defer func() {
 		client.disconnect()
@@ -96,10 +77,12 @@ func (client *Client) readPump() {
 			break
 		}
 
-		client.wsServer.broadcast <- jsonMessage
+		client.handleNewMessage(jsonMessage)
 	}
+
 }
 
+// writePump writes message to the client's connection
 func (client *Client) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
@@ -143,6 +126,142 @@ func (client *Client) writePump() {
 
 func (client *Client) disconnect() {
 	client.wsServer.unregister <- client
+	for room := range client.rooms {
+		room.unregister <- client
+	}
 	close(client.send)
 	client.conn.Close()
+}
+
+// ServeWs handles websocket requests from clients requests.
+func ServeWs(wsServer *WsServer, w http.ResponseWriter, r *http.Request) {
+
+	name, ok := r.URL.Query()["name"]
+
+	if !ok || len(name[0]) < 1 {
+		log.Println("Url Param 'name' is missing")
+		return
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	client := newClient(conn, wsServer, name[0])
+
+	go client.writePump()
+	go client.readPump()
+
+	wsServer.register <- client
+}
+
+func (client *Client) handleNewMessage(jsonMessage []byte) {
+
+	var message Message
+	if err := json.Unmarshal(jsonMessage, &message); err != nil {
+		log.Printf("Error on unmarshal JSON message %s", err)
+		return
+	}
+
+	message.Sender = client
+
+	switch message.Action {
+	case SendMessageAction:
+		roomID := message.Target.GetID()
+		if room := client.wsServer.findRoomByID(roomID); room != nil {
+			room.broadcast <- &message
+		}
+
+	case JoinRoomAction:
+		client.handleJoinRoomMessage(message)
+
+	case LeaveRoomAction:
+		client.handleLeaveRoomMessage(message)
+
+	case JoinRoomPrivateAction:
+		client.handleJoinRoomPrivateMessage(message)
+	}
+
+}
+
+func (client *Client) handleJoinRoomMessage(message Message) {
+	roomName := message.Message
+
+	client.joinRoom(roomName, nil)
+}
+
+func (client *Client) handleLeaveRoomMessage(message Message) {
+	room := client.wsServer.findRoomByID(message.Message)
+	if room == nil {
+		return
+	}
+
+	if _, ok := client.rooms[room]; ok {
+		delete(client.rooms, room)
+	}
+
+	room.unregister <- client
+}
+
+func (client *Client) handleJoinRoomPrivateMessage(message Message) {
+
+	target := client.wsServer.findClientByID(message.Message)
+
+	if target == nil {
+		return
+	}
+
+	// create unique room name combined to the two IDs
+	roomName := message.Message + client.ID.String()
+
+	client.joinRoom(roomName, target)
+	target.joinRoom(roomName, client)
+
+}
+
+func (client *Client) joinRoom(roomName string, sender *Client) {
+
+	room := client.wsServer.findRoomByName(roomName)
+	if room == nil {
+		room = client.wsServer.createRoom(roomName, sender != nil)
+	}
+
+	// Don't allow to join private rooms through public room message
+	if sender == nil && room.Private {
+		return
+	}
+
+	if !client.isInRoom(room) {
+
+		client.rooms[room] = true
+		room.register <- client
+
+		client.notifyRoomJoined(room, sender)
+	}
+
+}
+
+func (client *Client) isInRoom(room *Room) bool {
+	if _, ok := client.rooms[room]; ok {
+		return true
+	}
+
+	return false
+}
+
+func (client *Client) notifyRoomJoined(room *Room, sender *Client) {
+	message := Message{
+		Action: RoomJoinedAction,
+		Target: room,
+		Sender: sender,
+	}
+
+	client.send <- message.encode()
+}
+
+// GetName returns the name of the client
+func (client *Client) GetName() string {
+	return client.Name
 }

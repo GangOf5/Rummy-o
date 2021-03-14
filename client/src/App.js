@@ -1,12 +1,14 @@
 import {useEffect, useState, useRef} from 'react'
 
 export default function App() {
-  const [message, setMessage] = useState("Idle")
+  const [messages, setMessages] = useState([])
+  const [newMessage, setNewMessage] = useState("")
   const ws = useRef(null);
 
   function sendMessage() {
     try {
-      ws.current.send("hello!") //send data to the server
+      ws.current.send(newMessage) //send data to the server
+      setNewMessage("")
       } catch (error) {
           console.log(error) // catch error
       }
@@ -17,25 +19,32 @@ export default function App() {
     ws.current.onopen = () => {
       // on connecting, do nothing but log it to the console
       console.log('connected')
-      setMessage("Connected")
       }
       ws.current.onmessage = evt => {
       // listen to data sent from the websocket server
-      const message = JSON.parse(evt.data)
-      this.setState({dataFromServer: message})
+      const message = evt.data
+      setMessages(ms => [...ms, message])
       console.log(message)
-      setMessage("Message")
       }
       ws.current.onclose = () => {
       console.log('disconnected')
-      setMessage("Disconnected")
       // automatically try to reconnect on connection loss
       }
 },[])
 
   return (
     <div className="App">
-      {message}
+             <textarea name="message"
+                       placeholder="Type your message..."
+                       value={newMessage}
+                       onChange={(e)=>setNewMessage(e.target.value)}
+                       ></textarea>
+            <div>
+              <h1>Messages:</h1>
+              <ul>
+                {messages.map((m, index) => <li key={index}>{m}</li>)}
+              </ul>
+            </div>
       <button onClick={sendMessage}>Send message</button>
     </div>
   );
