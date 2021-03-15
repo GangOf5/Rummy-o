@@ -1,5 +1,7 @@
 package main
 
+import ("fmt")
+
 // WsServer maintains rooms
 type WsServer struct {
 	clients    map[*Client]bool
@@ -81,6 +83,7 @@ func (server *WsServer) listOnlineClients(client *Client) {
 }
 
 func (server *WsServer) broadcastToClients(message []byte) {
+	fmt.Println("Broadcasting to clients: ", string(message))
 	for client := range server.clients {
 		client.send <- message
 	}

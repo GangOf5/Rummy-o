@@ -78,10 +78,8 @@ func (client *Client) readPump() {
 			}
 			break
 		}
-		fmt.Println(jsonMessage)
 		client.handleNewMessage(jsonMessage)
 	}
-
 }
 
 // writePump writes message to the client's connection
@@ -167,6 +165,7 @@ func (client *Client) handleNewMessage(jsonMessage []byte) {
 	}
 
 	message.Sender = client
+	fmt.Println("received message", message, "from", client.Name)
 
 	switch message.Action {
 	case SendMessageAction:

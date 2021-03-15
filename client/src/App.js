@@ -1,4 +1,4 @@
-import {useState, useRef} from 'react'
+import {useState, useRef, useEffect} from 'react'
 
 export default function App() {
   const [rooms, setRooms] = useState([])
@@ -6,6 +6,8 @@ export default function App() {
   const [user, setUser] = useState({name: ""})
   const [connected, setConnected] = useState(false)
   const ws = useRef(null);
+
+  useEffect(() => {console.log("use effect: " + rooms)}, [rooms])
 
   function sendMessage(room) {
     try {
@@ -38,24 +40,13 @@ export default function App() {
     setRooms(rooms => rooms.filter(r => r.id !== room.id))
   }
 
-  function findRoom(roomName) {
-    for(let i = 0; i < rooms.length; i++) {
-      if (rooms[i].name === roomName){
-        return this.rooms[i]
-      }
-    }
-  }
-
-  function handleMessage(message){
+  const handleMessage = message => {
     console.log(message.action)
-
     if (message["action"] === "room-joined"){
       setRooms(rooms => [...rooms, {...message.target, messages:[], newMessage:""}])
-    } else if (message.action === "") {
-    const room = findRoom(message.Target)
-    if (room) {
-      room.messages.push(message)
-    }
+    } else if (message.action === "send-message") {
+      console.log("message received!")
+      setRooms(rooms => rooms.map(r => (r.id === message.target.id ? {...r, messages: [...r.messages, message.message]}:r)))
     }
   }
 
