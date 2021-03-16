@@ -1,4 +1,5 @@
-import {useState, useRef, useEffect} from 'react'
+import {useState, useRef} from 'react'
+import { roomJoinedEvent, joinRoomEvent, sendMessageEvent, leaveRoomEvent } from './Shared/EventNames'
 
 export default function App() {
   const [rooms, setRooms] = useState([])
@@ -7,13 +8,11 @@ export default function App() {
   const [connected, setConnected] = useState(false)
   const ws = useRef(null);
 
-  useEffect(() => {console.log("use effect: " + rooms)}, [rooms])
-
   function sendMessage(room) {
     try {
       if (room.newMessage !== ""){
         ws.current.send(JSON.stringify({
-          action: 'send-message',
+          action: sendMessageEvent,
           message: room.newMessage,
           target: room
         }))
@@ -26,7 +25,7 @@ export default function App() {
 
   function joinRoom(){
     ws.current.send(JSON.stringify({
-      action: 'join-room',
+      action: joinRoomEvent,
       message: roomNameInput
     }))
     setRoomNameInput(() => "")
@@ -34,19 +33,18 @@ export default function App() {
 
   function leaveRoom(room){
     ws.current.send(JSON.stringify({
-      action: 'leave-room',
+      action: leaveRoomEvent,
       message: room.id
     }))
     setRooms(rooms => rooms.filter(r => r.id !== room.id))
   }
 
   const handleMessage = message => {
-    console.log(message.action)
-    if (message["action"] === "room-joined"){
+    console.log(message)
+    if (message.action === roomJoinedEvent){
       setRooms(rooms => [...rooms, {...message.target, messages:[], newMessage:""}])
-    } else if (message.action === "send-message") {
-      console.log("message received!")
-      setRooms(rooms => rooms.map(r => (r.id === message.target.id ? {...r, messages: [...r.messages, message.message]}:r)))
+    } else if (message.action === sendMessageEvent) {
+      setRooms(rooms => rooms.map(r => (r.id === message.target.id ? {...r, messages: [...r.messages, message]}:r)))
     }
   }
 
@@ -59,10 +57,11 @@ export default function App() {
       }
     ws.current.onmessage = evt => {
     // listen to data sent from the websocket server
-    handleMessage(JSON.parse(evt.data))
+      console.log(evt.data)
+      handleMessage(JSON.parse(evt.data))
     }
     ws.current.onclose = () => {
-    console.log('disconnected')
+      console.log('disconnected')
     // automatically try to reconnect on connection loss
     }
   }
@@ -82,7 +81,9 @@ if (!connected) {
       <div>
         {rooms.map((room, index) => <div key={index}>
           <p>{room.name} | {room.id}</p>
-          {room.messages.map((m, i) => <li key={i}>{m}</li>)}
+          {room.messages.map((m, i) => <li key={i}>
+            {m.sender &&  <span>{m.sender.name}:</span>} <span>{m.message}</span> 
+           </li>)}
           <input value={room.newMessage} onChange={(e) => setRooms(rooms.map((r, ri) => {
             if (ri === index){
               return {...r, newMessage: e.target.value}
@@ -98,4 +99,3 @@ if (!connected) {
       </div>
   )
 }
-
