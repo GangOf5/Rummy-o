@@ -1,5 +1,6 @@
-import Tile from './Components/Game/Tile'
+import Tile from "./Components/Game/Tile";
+import { pink } from "@material-ui/core/colors";
 
 export default function App() {
-  return <Tile color="red" number={0}/>
+  return <Tile tileColor={pink[500]} number={3} />;
 }
